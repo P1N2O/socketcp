@@ -1,0 +1,62 @@
+name: Release socketcp
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: "0.15.2"
+
+      - name: Build all targets
+        run: |
+          zig build all-targets -Doptimize=ReleaseFast
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          CURRENT_TAG="${GITHUB_REF_NAME}"
+
+          # Try to find previous tag (the last tag before CURRENT_TAG)
+          if PREV_TAG=$(git describe --tags --abbrev=0 "${CURRENT_TAG}^" 2>/dev/null); then
+            echo "previous_tag=$PREV_TAG" >> "$GITHUB_OUTPUT"
+
+            {
+              echo "## Changes"
+              git log --oneline "${PREV_TAG}..${CURRENT_TAG}" | head -n 5
+              echo
+              echo "[Full changelog](https://github.com/${GITHUB_REPOSITORY}/compare/${PREV_TAG}...${CURRENT_TAG})"
+            } > RELEASE_BODY.md
+          else
+            # No previous tag (first release)
+            echo "previous_tag=" >> "$GITHUB_OUTPUT"
+
+            {
+              echo "## Changes"
+              git log --oneline -n 5
+            } > RELEASE_BODY.md
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "socketcp ${{ github.ref_name }}"
+          files: zig-out/bin/*
+          body_path: RELEASE_BODY.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
